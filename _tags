@@ -1,0 +1,5 @@
+true: use_menhir
+
+<frontend> or <domains> or <iterator> or <libs>: include
+
+<**/*.ml> or <main.{{d.,}byte,{p.,}native}>: package(zarith), package(apron), package(apron.polkaMPQ), package(apron.octMPQ), package(apron.boxMPQ)
