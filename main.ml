@@ -23,11 +23,35 @@ module Polyhedra = ApronDomain.Make(ApronDomain.PolyhedralManager)
 
 
 
+
+
+
 (* parse filename *)
 let doit domain backward_analysis false_alarms filename =
   let module Dom = (val domain : DOMAIN) in
   let module Iterator = Forward.Make(Dom) in
   let module BackwardIterator = Backward.Make(Dom) in
+
+
+  let print_failing_trace oc (src_inv, tr) =
+    Printf.fprintf oc "Entering main with values :\n" ;
+    Dom.print oc src_inv ;
+    Printf.printf "Then :\n" ;
+    List.iter (fun fl ->
+      let open Backward in
+      let open Cfg in
+      match fl with
+      | Arc a ->
+	 Printf.fprintf oc "  %i -> %i: %a\n"
+	   a.arc_src.node_id a.arc_dst.node_id Cfg_printer.print_inst a.arc_inst ;
+      | FunctionCall (call_site, f) ->
+	 Printf.fprintf oc "  %i -> %i: Entering function %s\n"
+	   call_site.node_id f.func_entry.node_id f.func_name
+      | FunctionExit (exit_site, f) ->
+	 Printf.fprintf oc "  %i -> %i: Entering function %s\n"
+	  f.func_exit.node_id  exit_site.node_id  f.func_name
+      ) tr
+  in
 
   let prog = File_parser.parse_file filename in
 
@@ -37,7 +61,23 @@ let doit domain backward_analysis false_alarms filename =
   if backward_analysis
   then
     List.iter (fun fa ->
-      BackwardIterator.iterate cfg invariants fa
+      let (invariants, tr) = BackwardIterator.iterate cfg invariants fa in
+      match tr with
+      | Some ft ->
+	 begin
+	   Printf.printf "Assertion on %a failed on foward analysis.\n"
+	     Cfg_printer.print_bool_expr (snd fa) ;
+	   Printf.printf "Searching a trace of failure... found a failing trace!" ;
+	   print_failing_trace stdout ft
+	 end
+      | None when false_alarms ->
+	 begin
+	   Printf.printf "Assertion on %a failed on foward analysis.\n"
+	     Cfg_printer.print_bool_expr (snd fa) ;
+	   Printf.printf "Searching a trace of failure... false alarm"
+	 end
+      | None -> ()
+
     ) failed_assertions
   else
     List.iter (fun (x, expr) ->

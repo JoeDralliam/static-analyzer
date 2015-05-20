@@ -1,41 +1,38 @@
 open Domain
 open Cfg
 
+type incoming_flow =
+  | Arc of arc
+  | FunctionCall of node * func
+  | FunctionExit of node * func
+
+
+
 module Make (D : DOMAIN) =
 struct
+
+
+  exception FailingTrace of (D.t * (incoming_flow list))
+
+
+
   type t =
     {
       worklist : node list ;
       invariants : D.t NodeMap.t ;
-      (*initial_invariants : D.t NodeMap.t ; *)
-      widening_points : NodeSet.t ;
-      dec_iterations : int NodeMap.t ;
-      max_dec_iterations : int ;
       entry_points : func NodeMap.t ;
       exit_points : func NodeMap.t ;
       cfg : cfg
     }
 
-  let bwd_invariants vars invariants n =
-    try NodeMap.find n invariants
-    with Not_found -> D.bottom vars
-
-  let evaluate_instr vars dvalue invariants arc =
-    let res = bwd_invariants vars invariants arc.arc_dst in
-    let a =
-      match arc.arc_inst with
-      | CFG_skip _ -> D.meet dvalue res
-      | CFG_assign (var, expr) -> D.bwd_assign dvalue var expr res
-      | CFG_guard expr -> D.guard (D.meet dvalue res) expr
-      | CFG_assert expr -> D.meet dvalue res
-      (*D.guard (D.meet dvalue res) expr *)
-      | CFG_call f ->
-	 bwd_invariants vars invariants f.func_entry
-    in
-    Printf.printf "Node %d <- %d:\n" arc.arc_dst.node_id arc.arc_src.node_id ;
-    D.print stdout a ;
-    Printf.printf "\n" ;
-    a
+  let evaluate_instr dvalue invariants arc =
+    let res = NodeMap.find arc.arc_dst invariants in
+    match arc.arc_inst with
+    | CFG_skip _ -> D.meet dvalue res
+    | CFG_assign (var, expr) -> D.bwd_assign dvalue var expr res
+    | CFG_guard expr -> D.guard (D.meet dvalue res) expr
+    | CFG_assert expr -> D.meet dvalue res
+    | CFG_call f -> NodeMap.find f.func_entry invariants
 
   let predecessors entry_points node wl =
     let wl =
@@ -49,82 +46,35 @@ struct
       | CFG_call f -> f.func_exit
       | _ -> arc.arc_src) :: wl) wl node.node_in
 
-  let call_to vars invariants exit_points node dvalues =
+  let call_to invariants exit_points node dvalues =
     try
       let f = NodeMap.find node exit_points in
       List.fold_left (fun dvalues a ->
-	bwd_invariants vars invariants a.arc_dst :: dvalues
+	NodeMap.find a.arc_dst invariants :: dvalues
       ) dvalues f.func_calls
     with Not_found -> dvalues
 
   let examine_regular iter node worklist cont =
-    Printf.printf "Examinde node %d...\n" node.node_id ;
     let arcs = node.node_out in
-    let dvalue =
-    (*  try *) NodeMap.find node iter.invariants
-    (*      with Not_found -> NodeMap.find node iter.initial_invariants *)
-    in
+    let old_dvalue = NodeMap.find node iter.invariants in
     let dvalue =
       arcs
-      |> List.map (evaluate_instr iter.cfg.cfg_vars dvalue iter.invariants)
-      |> call_to iter.cfg.cfg_vars iter.invariants iter.exit_points node
+      |> List.map (evaluate_instr old_dvalue iter.invariants)
+      |> call_to iter.invariants iter.exit_points node
       |> List.fold_left D.join (D.bottom iter.cfg.cfg_vars)
     in
-    if D.subset (bwd_invariants iter.cfg.cfg_vars iter.invariants node) dvalue
+    if D.subset old_dvalue dvalue
     then cont { iter with worklist }
     else
       let worklist = predecessors iter.entry_points node worklist in
       let invariants = NodeMap.add node dvalue iter.invariants in
       cont { iter with worklist ; invariants }
 
-  let examine_widening_point iter node worklist cont =
-    let arcs = node.node_out in
-    let dvalue =
-    (*  try *) NodeMap.find node iter.invariants
-    (*      with Not_found -> NodeMap.find node iter.initial_invariants *)
-    in
-    let dvalue =
-      arcs
-      |> List.map (evaluate_instr iter.cfg.cfg_vars dvalue iter.invariants)
-      |> call_to iter.cfg.cfg_vars iter.invariants iter.exit_points node
-      |> List.fold_left D.join (D.bottom iter.cfg.cfg_vars)
-    in
-    let old_dvalue = bwd_invariants iter.cfg.cfg_vars iter.invariants node in
-    let wdvalue = D.widen old_dvalue dvalue in
-    if D.subset wdvalue old_dvalue
-    then
-      begin
-	let dec_it =
-	  try NodeMap.find node iter.dec_iterations
-	  with Not_found -> 0
-	in
-	if dec_it < iter.max_dec_iterations
-	then
-	  let dec_iterations = NodeMap.add node (succ dec_it) iter.dec_iterations in
-	  let worklist = predecessors iter.entry_points node worklist in
-	  let invariants = NodeMap.add node dvalue iter.invariants in
-	  Printf.printf "Temporary value at iteration %d:\n" (succ dec_it) ;
-	  D.print stdout dvalue ;
-	  cont { iter with worklist ; invariants ; dec_iterations }
-	else cont { iter with worklist }
-      end
-    else
-      begin
-	let dec_iterations = NodeMap.add node 0 iter.dec_iterations in
-	let worklist = predecessors iter.entry_points node worklist in
-	let invariants = NodeMap.add node wdvalue iter.invariants in
-	cont { iter with worklist ; invariants ; dec_iterations }
-
-      end
-
 
   let rec examine_next iter =
     match iter.worklist with
     | [] -> iter.invariants
-    | node :: worklist ->
-       (*if NodeSet.mem node iter.widening_points
-       then examine_widening_point iter node worklist examine_next
-	 else*) examine_regular iter node worklist examine_next
+    | node :: worklist -> examine_regular iter node worklist examine_next
 
 
   let rec find_main funcs =
@@ -166,37 +116,43 @@ struct
       else NodeSet.add arc.arc_dst pts
     ) NodeSet.empty cfg.cfg_arcs
 
-  let rec find_failing_trace oc invariants visited src dst =
-    let visited = NodeSet.add dst visited in
-    (*    Printf.printf "Visiting node %d...\n" dst.node_id ; *)
-    if src.node_id = dst.node_id
-    then (
-      Printf.printf " found failing trace!\n" ;
-      Printf.printf "Entering main with values :\n" ;
-      D.print oc (NodeMap.find src invariants) ;
-      Printf.printf "Then :\n" ;
-      true)
-    else
-      List.exists (fun a ->
-	let n = a.arc_src in
-	(*	Printf.printf "  checking node %d...\n" n.node_id ; *)
+
+  let rec find_failing_trace acc invariants visited entry_points exit_points src dst =
+    let incoming node =
+      let incoming =
 	try
-	  if not (NodeSet.mem n visited)
-	    && not (D.is_bottom (NodeMap.find n invariants))
-	    && find_failing_trace oc invariants visited src n
-	  then
-	    begin
-	      Printf.fprintf oc "  %i -> %i: %a\n"
-		a.arc_src.node_id a.arc_dst.node_id Cfg_printer.print_inst a.arc_inst ;
-	      true
-	    end
-	  else false
-	with _ -> false
-      ) dst.node_in
+	  let f = NodeMap.find node entry_points in
+	  List.fold_left
+	    (fun i a -> FunctionCall (a.arc_src, f)  :: i)
+	    [] f.func_calls
+	with Not_found -> []
+    in
+      List.fold_left (fun i arc ->
+	(match arc.arc_inst with
+	| CFG_call f -> FunctionExit (arc.arc_dst, f)
+	| _ -> Arc arc) :: i) incoming node.node_in
+    in
+
+    let source fl =
+      match fl with
+      | Arc a -> a.arc_src
+      | FunctionCall (src, _) -> src
+      | FunctionExit (_, f) -> f.func_exit
+    in
+
+    let visited = NodeSet.add dst visited in
+    if src.node_id = dst.node_id
+    then raise (FailingTrace (NodeMap.find src invariants, acc))
+    else
+      List.iter (fun f ->
+	let n = source f in
+	if not (NodeSet.mem n visited)
+	  && not (D.is_bottom (NodeMap.find n invariants))
+	then find_failing_trace (f :: acc) invariants visited entry_points exit_points src n
+      ) (incoming dst)
 
   let iterate cfg initial_invariants (node, expr) =
 
-    let widening_points = mark_widening_points cfg in
     let main_func = find_main cfg.cfg_funcs in
 
     let entry_points =
@@ -219,9 +175,6 @@ struct
 	       (NodeMap.find node initial_invariants)
 	       (CFG_bool_unary (Abstract_syntax_tree.AST_NOT, expr)))
 	    initial_invariants ;
-	dec_iterations = NodeMap.empty ;
-	max_dec_iterations = 5 ;
-	widening_points ;
 	entry_points ;
 	exit_points ;
 	cfg
@@ -229,14 +182,16 @@ struct
     in
     let invariants = examine_next iter in
 
-    Printf.printf "\n\nMain function, backward:\n" ;
-    print_invariants invariants ;
-
-    Printf.printf "Assertion on %a failed on foward analysis.\n"
-      Cfg_printer.print_bool_expr expr ;
-    Printf.printf "Searching a trace of failure... " ;
-    if not (find_failing_trace stdout invariants
-	      NodeSet.empty main_func.func_entry node)
-    then Printf.printf "  false alarm.\n"
+    let trace =
+      try
+	begin
+	  find_failing_trace [] invariants NodeSet.empty
+	    entry_points exit_points
+	    main_func.func_entry node ;
+	  None
+	end
+      with FailingTrace tr -> Some tr
+    in
+    (invariants, trace)
 
 end
