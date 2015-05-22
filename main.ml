@@ -27,7 +27,8 @@ module Polyhedra = ApronDomain.Make(ApronDomain.PolyhedralManager)
 
 
 (* parse filename *)
-let doit domain backward_analysis false_alarms print_graph pr_invariants skip_assert filename =
+let doit domain backward_analysis false_alarms
+    print_graph pr_invariants skip_assert max_decreasing_iteration filename =
   let module Dom = (val domain : DOMAIN) in
   let module Iterator = Forward.Make(Dom) in
   let module BackwardIterator = Backward.Make(Dom) in
@@ -37,19 +38,11 @@ let doit domain backward_analysis false_alarms print_graph pr_invariants skip_as
     Printf.fprintf oc "Entering main with values :\n" ;
     Dom.print oc src_inv ;
     Printf.printf "Then :\n" ;
-    List.iter (fun fl ->
+    List.iter (fun a ->
       let open Backward in
       let open Cfg in
-      match fl with
-      | Arc a ->
-	 Printf.fprintf oc "  %i -> %i: %a\n"
-	   a.arc_src.node_id a.arc_dst.node_id Cfg_printer.print_inst a.arc_inst ;
-      | FunctionCall (call_site, f) ->
-	 Printf.fprintf oc "  %i -> %i: Entering function %s\n"
-	   call_site.node_id f.func_entry.node_id f.func_name
-      | FunctionExit (exit_site, f) ->
-	 Printf.fprintf oc "  %i -> %i: Exiting function %s\n"
-	  f.func_exit.node_id  exit_site.node_id  f.func_name
+      Printf.fprintf oc "  %i -> %i: %a\n"
+	a.arc_src.node_id a.arc_dst.node_id Cfg_printer.print_inst a.arc_inst ;
     ) tr ;
     Printf.printf "  Assertion failing point.\n\n"
   in
@@ -124,25 +117,32 @@ let main () =
   let invariants = ref false in
   let graph = ref false in
   let skip_assert = ref false in
+  let max_decreasing_iterations = ref 3 in
   let filename = ref None in
-  Arg.(parse
-    [ "-domain", Symbol (domains_name, set_domain domain), "Abstract domain" ;
-      "-backward-analysis"   , Set   backward_analysis, "Perform backward analysis" ;
-      "-no-backward-analysis", Clear backward_analysis, "Don't perform backward analysis" ;
-      "-false-alarms"   , Set   false_alarms, "Print false alarms" ;
-      "-no-false-alarms", Clear false_alarms, "Don't print false alarms" ;
-      "-invariants"     , Set   invariants, "Print invariants of each nodes" ;
-      "-no-invariants"  , Clear invariants, "Don't print invariants" ;
-      "-graph"          , Set   graph, "Print cfg" ;
-      "-no-graph"       , Clear graph, "Don't print cfg" ;
-      "-skip-assert"    , Set   skip_assert, "Don't assume assertions" ;
-      "-no-skip-assert" , Clear skip_assert, "Assume assertions on outgoing flows"] 
-    (fun s -> filename := Some s)
-    "");
+  let spec =
+    let open Arg in
+    [ "-domain", Symbol (domains_name, set_domain domain), " Abstract domain" ;
+      "-backward-analysis"   , Set   backward_analysis, " Perform backward analysis" ;
+      "-no-backward-analysis", Clear backward_analysis,
+        " Don't perform backward analysis" ;
+      "-false-alarms"   , Set   false_alarms, " Print false alarms" ;
+      "-no-false-alarms", Clear false_alarms, " Don't print false alarms" ;
+      "-invariants"     , Set   invariants, " Print invariants of each nodes" ;
+      "-no-invariants"  , Clear invariants, " Don't print invariants" ;
+      "-graph"          , Set   graph, " Print cfg" ;
+      "-no-graph"       , Clear graph, " Don't print cfg" ;
+      "-skip-assert"    , Set   skip_assert, " Don't assume assertions" ;
+      "-no-skip-assert" , Clear skip_assert, " Assume assertions on outgoing flows" ;
+      "-max-decreasing-iterations", Set_int max_decreasing_iterations,
+         "<n> Number of decreasing iterations"]
+    |> align
+  in
+  let usage = "Usage : main.native [options] <filename>" in
+  Arg.parse spec (fun s -> filename := Some s) usage ;
   match !filename with
   | Some filename ->
-     doit !domain !backward_analysis !false_alarms !graph !invariants !skip_assert filename
-  | None -> invalid_arg "No source file specified"
+     doit !domain !backward_analysis !false_alarms !graph !invariants !skip_assert !max_decreasing_iterations filename
+  | None -> Arg.usage spec usage
 
 let _ =
   try main ()
