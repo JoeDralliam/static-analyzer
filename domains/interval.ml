@@ -126,7 +126,7 @@ struct
   type t =
     | Bottom
     | Interval of (Bounds.t * Bounds.t)
-
+	
   let top = Interval (Bounds.MinusInfinite, Bounds.Infinite)
   let bottom = Bottom
 
@@ -162,6 +162,23 @@ struct
 
   module Operators =
   struct
+    let cut_neg_pos i =
+      match i with
+      | Bottom -> (Bottom, Bottom)
+      | Interval (a, b) ->
+	 let open Bounds in
+	 if a >=? Finite Z.zero
+	 then (Bottom, Interval (max a (Finite Z.one), b))
+	 else if b <=? Finite Z.zero
+	 then (Interval (a, min (Finite Z.minus_one) b), Bottom)
+	 else (* if a <? (Finite Z.zero) && (Finite Z.zero) <? b *)
+	   (Interval (a, Finite Z.minus_one),
+	    Interval (Finite Z.one, b))
+
+    let bounds_list = function
+      | Bottom -> []
+      | Interval (a, b) -> [a ; b]
+	  
     let (~-.) v =
       match v with
       | Bottom -> Bottom
@@ -191,16 +208,21 @@ struct
       match (a, b) with
       | (Bottom, _) | (_, Bottom) -> Bottom
       | (Interval (la, ha), Interval (lb, hb)) ->
-	 if subset (const Z.zero) (Interval (lb, hb))
-	 then Interval Bounds.(MinusInfinite, Infinite)
-	 else
-	   let open List in
-	   let quotients =
-	     map (fun x -> map (Bounds.div x) [lb ; hb]) [la ; ha]
-             |> flatten
-	   in
-	   Interval (fold_left Bounds.min Bounds.Infinite quotients,
-		     fold_left Bounds.max Bounds.MinusInfinite quotients)
+	 let open Bounds in
+	 let (neg, pos) = cut_neg_pos b in
+	 let neg_quot =
+	   match neg with
+	   | Bottom -> Bottom
+	   | Interval (ln, hn) ->
+	      Interval (min (ha /? ln) (ha /? hn), max (la /? ln) (la /? hn))
+	 in
+	 let pos_quot =
+	   match neg with
+	   | Bottom -> Bottom
+	   | Interval (lp, hp) ->
+	      Interval (min (la /? lp) (la /? hp), max (ha /? lp) (ha /? hp))
+	 in	   
+	 join neg_quot pos_quot
 
     let ( %. ) a b =
       match (a, b) with
@@ -285,18 +307,6 @@ struct
 	 then Interval (l1, h2)
 	 else Bottom
 
-    let cut_neg_pos i =
-      match i with
-      | Bottom -> (Bottom, Bottom)
-      | Interval (a, b) ->
-	 let open Bounds in
-	 if a >=? Finite Z.zero
-	 then (Bottom, Interval (a, b))
-	 else if b <=? Finite Z.zero
-	 then (Interval (a, b), Bottom)
-	 else (* if a <? (Finite Z.zero) && (Finite Z.zero) <? b *)
-	   (Interval (a, Finite Z.minus_one),
-	    Interval (Finite Z.one, b))
 
 
     (* a/ b = r -> b * r <= a < b * (r+1)

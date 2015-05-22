@@ -58,7 +58,7 @@ struct
     let lift_guard op =
       lift_common (fun x y ->
 	if Z.equal y Z.zero
-	then Top
+	then Bottom
 	else Value (op x y)
       )
 
@@ -128,7 +128,7 @@ struct
   let bwd_unary x op r =
     meet x (unary r op)
 
-  (* preimage of  x by (fun t -> t * y) *)
+  (* preimage of x by (fun t -> t * y) *)
   let divide_exact x y =
     match (x, y) with
     | (Bottom, _) -> Bottom
@@ -138,7 +138,7 @@ struct
        then Top
        else if ny = Z.zero || (Z.rem nx ny <> Z.zero)
        then Bottom
-       else Value (Z.rem nx ny)
+       else Value (Z.div nx ny)
     | (Top, _) -> Top
     | (_, Top) -> Top (* x is non-empty ; thus there is at least 1 and -1 in "x / y"*)
 
@@ -167,53 +167,8 @@ struct
        (prex, prey)
 
     | AST_MODULO ->
-       let prex =
-	 match x with
-	 | Bottom -> Bottom
-	 | Top ->
-	    if r = Bottom || y = Bottom
-	    then Bottom
-	    else Top
-	 | Value nx ->
-	    match (r, y) with
-	    | (Bottom, _) -> Bottom
-	    | (_, Bottom) -> Bottom
-	    | (Value nr, Value ny) ->
-	       if Z.equal ny Z.zero || Z.rem nx ny <> nr
-	       then Bottom
-	       else (Value nx)
-	    | (Top, Value ny) ->
-	       if Z.equal ny Z.zero
-	       then Bottom
-	       else (Value nx)
-	    (* TODO refine ; depends on modulo specification *)
-	    | (Value nr, Top) -> Value nx
-	    | (Top, Top) -> Value nx
-       in
-       let prey =
-	 match y with
-	 | Bottom -> Bottom
-	 | Top ->
-	    if r = Bottom || x = Bottom
-	    then Bottom
-	    else Top
-	 | Value ny ->
-	    if Z.equal ny Z.zero
-	    then Bottom
-	    else
-	      match (r, x) with
-	      | (Bottom, _) -> Bottom
-	      | (_, Bottom) -> Bottom
-	      | (Value nr, Value nx) ->
-		  if Z.rem nx ny <> nr
-		  then Bottom
-		  else (Value ny)
-	      | (Top, Value nx) -> Value ny
-	      | (Value nr, Top) -> Value ny
-	      | (Top, Top) -> Value ny
-       in
-       (prex, prey)
-
+       (x, y)
+	 
   let widen = join
 
 
