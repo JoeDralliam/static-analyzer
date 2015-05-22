@@ -12,17 +12,21 @@ struct
       max_dec_iterations : int ;
       entry_points : func NodeMap.t ;
       exit_points : func NodeMap.t ;
-      cfg : cfg
+      cfg : cfg ;
+      skip_assert : bool
     }
 
 
-  let evaluate_instr invariants arc =
+  let evaluate_instr skip_assert invariants arc =
     let dvalue = NodeMap.find arc.arc_src invariants in
     match arc.arc_inst with
     | CFG_skip _ -> dvalue
     | CFG_assign (var, expr) -> D.assign dvalue var expr
     | CFG_guard expr -> D.guard dvalue expr
-    | CFG_assert expr -> D.guard dvalue expr
+    | CFG_assert expr ->
+       if skip_assert
+       then dvalue
+       else D.guard dvalue expr
     | CFG_call f ->
        NodeMap.find f.func_exit invariants
 
@@ -51,7 +55,7 @@ struct
     let arcs = node.node_in in
     let dvalue =
       arcs
-    |> List.map (evaluate_instr iter.invariants)
+    |> List.map (evaluate_instr iter.skip_assert iter.invariants)
     |> call_in iter.invariants iter.entry_points node
     |> List.fold_left D.join (D.bottom iter.cfg.cfg_vars)
     in
@@ -66,7 +70,7 @@ struct
     let arcs = node.node_in in
     let dvalue =
       arcs
-      |> List.map (evaluate_instr iter.invariants)
+      |> List.map (evaluate_instr iter.skip_assert iter.invariants)
       |> call_in iter.invariants iter.entry_points node
       |> List.fold_left D.join (D.bottom iter.cfg.cfg_vars)
     in
@@ -84,8 +88,6 @@ struct
 	  let dec_iterations = NodeMap.add node (succ dec_it) iter.dec_iterations in
 	  let worklist = successors iter.exit_points node worklist in
 	  let invariants = NodeMap.add node dvalue iter.invariants in
-	  Printf.printf "Temporary value at iteration %d:\n" (succ dec_it) ;
-	  D.print stdout dvalue ;
 	  cont { iter with worklist ; invariants ; dec_iterations }
 	else cont { iter with worklist }
       end
@@ -132,13 +134,6 @@ struct
     ) wpoints
 
 
-  let print_invariants =
-    NodeMap.iter (fun node dval ->
-      Printf.printf "\nNode %d (%s, l%d) : \n"
-	node.node_id
-	node.node_pos.Lexing.pos_fname
-	node.node_pos.Lexing.pos_lnum ;
-      D.print stdout dval)
 
 
   let print_assertion_failed oc arcs invariants =
@@ -183,7 +178,7 @@ struct
     ) NodeSet.empty cfg.cfg_arcs
 
 
-  let iterate cfg =
+  let iterate cfg skip_assert =
     let widening_points = mark_widening_points cfg in
 
     let entry_points =
@@ -196,7 +191,7 @@ struct
 
 
 
-    print_widening_points widening_points ;
+    (*    print_widening_points widening_points ; *)
 
     let iter =
       {
@@ -209,6 +204,7 @@ struct
 	exit_points ;
 	dec_iterations = NodeMap.empty ;
 	max_dec_iterations = 3 ;
+	skip_assert ;
 	cfg
       }
     in
@@ -227,15 +223,11 @@ struct
 	exit_points ;
 	max_dec_iterations = 3 ;
 	widening_points ;
+	skip_assert ;
 	cfg
       }
     in
     let invariants = examine_next iter in
-    Printf.printf "\n\nMain function:\n" ;
-    print_invariants invariants ;
-    Printf.printf "\n\nFailed assertions and unreachable branches:\n" ;
-    print_assertion_failed stdout cfg.cfg_arcs invariants ;
-
     (invariants, assertion_failed cfg.cfg_arcs invariants)
 
 end
