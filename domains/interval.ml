@@ -175,10 +175,6 @@ struct
 	   (Interval (a, Finite Z.minus_one),
 	    Interval (Finite Z.one, b))
 
-    let bounds_list = function
-      | Bottom -> []
-      | Interval (a, b) -> [a ; b]
-	  
     let (~-.) v =
       match v with
       | Bottom -> Bottom
