@@ -12,6 +12,10 @@ struct
 
   let bottom _ = VarMap.empty
 
+  let is_bottom =
+    VarMap.is_empty
+
+    
   let filter_empty vars =
     if VarMap.exists (fun _ x -> (V.is_bottom x)) vars
     then bottom []
@@ -43,9 +47,13 @@ struct
       | CFG_int_rand (a, b) ->
 	 V.rand a b
     in
-    VarMap.add var (evaluate expr) vars
-    |> filter_empty
-
+    if is_bottom vars
+    then vars
+    else
+      begin
+	VarMap.add var (evaluate expr) vars
+	|> filter_empty
+      end
 
   module EvalutionTree =
   struct
@@ -161,8 +169,6 @@ struct
       (fun _ -> V.is_bottom) (fun _ _ -> true)
       (fun _ -> V.subset)
 
-  let is_bottom =
-    VarMap.equal (=) (bottom [])
 
 
 
