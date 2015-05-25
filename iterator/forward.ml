@@ -91,21 +91,6 @@ struct
        then examine_widening_point iter node worklist examine_next
        else examine_regular iter node worklist examine_next
 
-
-
-
-  let rec find_main funcs =
-    match funcs with
-    | [] ->
-       begin
-	 Printf.eprintf "ERR : Main not found\n" ;
-	 failwith "No main found !"
-       end
-    | f :: funcs ->
-       if f.func_name = "main"
-       then f
-       else find_main funcs
-
   let print_widening_points wpoints =
     Printf.printf "Widening points set at :\n" ;
     NodeSet.iter (fun node ->
@@ -114,9 +99,6 @@ struct
 	node.node_pos.Lexing.pos_fname
 	node.node_pos.Lexing.pos_lnum
     ) wpoints
-
-
-
 
   let print_assertion_failed oc arcs invariants =
     List.iter (fun a ->
@@ -167,7 +149,9 @@ struct
       {
 	worklist = successors cfg.cfg_init_entry [] ;
 	invariants =
-	  List.fold_left (fun inv node -> NodeMap.add node (D.bottom cfg.cfg_vars) inv) NodeMap.empty cfg.cfg_nodes
+	  List.fold_left
+	    (fun inv node -> NodeMap.add node (D.bottom cfg.cfg_vars) inv)
+	    NodeMap.empty cfg.cfg_nodes
 	  |> NodeMap.add cfg.cfg_init_entry (D.init cfg.cfg_vars) ;
 	dec_iterations = NodeMap.empty ;
 	max_dec_iterations = 3 ;

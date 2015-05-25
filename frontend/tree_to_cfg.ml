@@ -240,7 +240,7 @@ let rec int_expr (env:env) (expr:Abstract_syntax_tree.int_expr)
            *)
           let tmp = create_var ("__ret_"^id) x var.var_type in
           let ass = CFG_assign (tmp, CFG_int_var var) in
-          add_to_vars env1 var, inst@[ass,x], CFG_int_var tmp
+          add_to_vars (add_to_vars env1 var) tmp, inst@[ass,x], CFG_int_var tmp
       )
 
 

@@ -1,0 +1,197 @@
+\documentclass{article}
+
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[francais]{babel}
+\usepackage{listings}
+\author{Jun Maillard} 
+\title{Analyseur statique} 
+\date{\today}
+
+
+\begin{document}
+
+\lstset{language=C}
+
+\maketitle
+
+Dans le cadre du cours de \textit{Sémantique et vérification}, un
+analyseur statique à base de domaines abstraits a été réalisé.
+
+\section{Domaines}
+\subsection{Domaines non relationnels} 
+
+Les domaines de valeurs (domaines des constantes et des intervalles)
+implémentent les cinq opérateurs arithmétiques, leurs inverses et les
+opérateurs de comparaisons. Seul l'opération inverse de modulo
+(\verb|bwd_mod|) est implémentée de manière
+imprécise (identité). 
+
+Le domaine des parties maintient une association des variables à des
+domaines de valeurs. L'élément $\bot$ est représenté par l'association
+vide.
+
+Ces domaines sont respectivement implémentés dans les modules
+\verb|Constant|, \verb|Interval| et \verb|DomainOfValueDomain|.
+
+\subsection{Domaines relationnels} 
+
+Les domaines relationnels d'Apron sont supporté à travers le foncteurs
+\verb|ApronDomain.Make|. L'intégration a nécessité de modifier
+légèrement l'interface de \verb|DOMAIN| en ajoutant en paramètre à la
+valeur \verb|bottom| la liste des variables du programmes.
+
+\section{Itérateurs}
+\subsection{SCfg : Simplification du graphe de flot de contrôle}
+
+Avant l'analyse du graphe, les appels de fonctions sont supprimé du
+graphe de flot de contrôle et remplacé par des sauts inconditionnels (\verb|skip|).
+Un arc est aussi rajouté entre le n\oe{}ud de fin d'initialisation et le
+n\oe{}ud d'entrée de \verb|main|.
+
+\subsection{Analyse en avant}
+
+L'analyse en avant est implémentée dans le module \verb|Forward| à
+l'aide d'une worklist.
+
+Les points d'élargissement sont placés les n\oe{}uds de
+destination des arcs correspondant à un saut en arrière dans la
+source. Lorsqu'un post-pointfixe est atteint, l'itérateur réalise des
+itérations décroissantes. Le nombre maximal de ces itérations est
+paramétrable.
+
+Les assertions peuvent être toutes assumées ou toutes ignorées.  Si
+elles sont assumées, elles se comportent comme des gardes. Sinon,
+elles se comportent comme des skip. Une fois les invariants calculés,
+l'analyseur détermine les assertions ayant échoué en comparant, pour chaque assertion, le
+domaine résultant de la garde par la négation de l'assertion appliquée au domaine
+source à $\bot$.
+
+\subsection{Analyse en arrière}
+
+L'analyse en arrière est implémentée dans le module \verb|Backward|
+
+L'analyse en arrière part d'une assertion ayant échoué lors de
+l'analyse en avant et parcours le graphe en sens inverse. Les
+domaines initiaux sont ceux résultant de l'analyse en avant, à
+l'exception du domaine du n\oe{}ud précédant l'assertion : c'est la fraction ne satisfaisant
+pas l'assertion. Les assertions sont ignorées lors de cette analyse.
+
+Une fois les invariants calculés, un parcours de graphe permet de
+déterminer la trace d'une exécution où l'assertion n'est pas
+satisfaite, ou au contraire de garantir que l'assertion est toujours vérifiée.
+
+\section{Interface}
+
+Le module \verb|Main| gère les options passées en ligne de commande.
+
+\subsection{Options de comportement}
+
+\begin{itemize}
+\item \verb|-domain| : spécifie le domaine abstrait à utiliser parmi
+  \textbf{constant}, \textbf{interval}, \textbf{octagon},
+  \textbf{polyhedra}.
+\item \verb|-backward-analysis|, \verb|-no-backward-analysis| :
+  active/désactive l'analyse en arrière.
+\item \verb|-skip-assert|, \verb|-no-skip-assert| : ignore/assume les
+  assertions.
+\item \verb|-max-decreasing-iterations| : spécifie le nombre
+  d'itérations décroissantes lors du calcul d'un point fixe.
+\end{itemize}
+
+\subsection{Options d'affichage}
+\begin{itemize}
+\item \verb|-false-alarms|, \verb|-no-false-alarms| : spécifie
+  l'affichage des fausses alarmes.
+\item \verb|-invariants|, \verb|-no-invariants| : spécifie l'affichage
+  des invariants.
+\item \verb|-graph|, \verb|-no-graph| : spécifie l'affichage du graphe
+  de flots de contrôle.
+\end{itemize}
+
+\section{Mise en application}
+
+Dans cette section, on examine quelques exemples de programmes
+illustrant les différentes fonctionnalités de l'analyseur.
+
+\subsection{Élargissement et itérations décroissantes}
+
+\begin{lstlisting}[frame=single]
+  int x = rand(-100, 24), y;
+  int main()
+  {
+    while(x <= 50)
+    {
+      x += 2; y += 1;
+    }
+    assert(50 < x && x <= 52);
+  }
+\end{lstlisting}
+
+Si le domaine n'est pas celui des constantes, l'analyse en avant est
+capable de garantir que l'assertion est toujours vérifiée.
+Sans élargissement, l'analyse ne terminerait pas, à cause de
+l'incrémentation de \verb|y| ; les itérations décroissantes permettent
+ensuite de raffiner la valeur de \verb|x|.
+
+
+\subsection{Comportement vis-à-vis des assertions}
+\begin{lstlisting}[frame=single]
+int a = rand(1, 100);
+int b = rand(1, 100);
+int main()
+{
+  assert(a > b);
+  assert(a + b >= 3);
+}
+\end{lstlisting}
+
+Si les assertions sont assumées, la première assertion échoue mais la
+seconde assertion est toujours vérifiée. Au contraire si les
+assertions sont ignorées, les deux assertions échouent.
+
+\subsection{Analyse en arrière: trace d'échec}
+\begin{lstlisting}[frame=single]
+int x = rand(-100, 100);
+int f(int alpha)
+{
+    if(x == alpha) { x = alpha + 1; }
+    else           { x = alpha    ; }
+}
+int main()
+{
+    f(9);
+    assert(x != 10);
+}
+\end{lstlisting}
+
+L'analyse en arrière renvoie une trace d'échec du programme passant
+par la première branche de la conditionnelle.
+
+\lstinputlisting[frame=single, language=Bash]{examples/ex8.out}
+
+
+\subsection{Tout ensemble}
+\begin{lstlisting}[frame=single]
+int x = rand(-100, 100);
+int y = rand(-100, 100);
+int z = rand(90, 300);
+int f(int alpha, int beta)
+{
+    while(x >= alpha && x <= beta)
+    {
+	x++;
+    }
+}
+
+int main()
+{
+    f(y, z);
+    assert(x < y || x > z);
+}
+\end{lstlisting}
+Les domaines relationnels permettent de vérifier que l'assertion est
+toujours valide.
+
+\end{document}

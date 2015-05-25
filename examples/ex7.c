@@ -9,4 +9,5 @@ int f(int x, int y, int z)
 int main()
 {
     tmp  = f(3,4, 3);
+    assert(tmp == 43);
 }

@@ -9,24 +9,12 @@ open Domain
   Ecole normale supérieure, Paris, France / CNRS / INRIA
 *)
 
-(*
-  Simple driver: parses the file given as argument and prints it back.
-
-  You should modify this file to call your functions instead!
-*)
-
 module Constant = DomainOfValueDomain.Make(ConstantValueDomain)
 module Interval = DomainOfValueDomain.Make(IntervalValueDomain)
 module Octagon = ApronDomain.Make(ApronDomain.OctagonManager)
 module Polyhedra = ApronDomain.Make(ApronDomain.PolyhedralManager)
 
 
-
-
-
-
-
-(* parse filename *)
 let doit domain backward_analysis false_alarms
     print_graph pr_invariants skip_assert max_decreasing_iteration filename =
   let module Dom = (val domain : DOMAIN) in
@@ -35,9 +23,9 @@ let doit domain backward_analysis false_alarms
 
 
   let print_failing_trace oc (src_inv, tr) =
-    Printf.fprintf oc "Entering main with values :\n" ;
-    Dom.print oc src_inv ;
-    Printf.printf "Then :\n" ;
+(*    Printf.fprintf oc "Entering program with values :\n" ;
+      Dom.print oc src_inv ; *)
+    Printf.printf "Trace :\n" ;
     List.iter (fun a ->
       let open Backward in
       let open Cfg in
@@ -63,6 +51,7 @@ let doit domain backward_analysis false_alarms
   let cfg = SCfg.of_cfg cfg in
 
   let (invariants, failed_assertions) = Iterator.iterate cfg skip_assert in
+
   if backward_analysis
   then
     List.iter (fun fa ->
@@ -82,7 +71,6 @@ let doit domain backward_analysis false_alarms
 	   Printf.printf "Searching a trace of failure... false alarm.\n"
 	 end
       | None -> ()
-
     ) failed_assertions
   else
     List.iter (fun (x, expr) ->

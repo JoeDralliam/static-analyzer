@@ -1,10 +1,10 @@
-int x = 1;
-
+int x = rand(-100, 24), y;
 int main()
 {
     while(x <= 50)
     {
 	x += 2;
+	y += 1;
     }
-    return 9;
+    assert(50 < x && x <= 52);
 }
